@@ -1,0 +1,399 @@
+/* ============================================
+   Bypass Code Generator - Cyber Security Theme
+   ============================================ */
+
+/* ---------- Color Variables ---------- */
+:root {
+    /* New Brand Colors extracted from Logo/Banner */
+    --brand-cyan:       #26C6DA;  /* Bright Cyan from Shield Icon */
+    --brand-cyan-dark:  #0097A7;  /* Darker Cyan for Hover states */
+    --brand-cyan-light: #E0F7FA;  /* Very light Cyan for backgrounds */
+    --brand-cyan-glow:  rgba(38, 198, 218, 0.25);
+
+    --brand-navy:       #0A1930;  /* Deep Navy from Banner Background */
+    --brand-navy-light: #1C3150;  /* Lighter Navy for secondary elements */
+    
+    /* Neutrals */
+    --gray-dark:        #1A1A1A;
+    --gray-mid:         #546E7A;
+    --gray-light:       #90A4AE;
+
+    --bg-primary:       #F0F4F8;  /* Cool gray/blue tint */
+    --bg-card:          #FFFFFF;
+    --bg-input:         #FAFBFC;
+
+    --border-light:     #CFD8DC;
+    --border-input:     #B0BEC5;
+
+    --text-primary:     #0A1930;  /* Navy for main text */
+    --text-secondary:   #37474F;
+    --text-muted:       #78909C;
+
+    /* Status Colors */
+    --error-bg:         #FFEBEE;
+    --error-border:     #FFCDD2;
+    --error-text:       #C62828;
+
+    --success-bg:       #E0F2F1;
+    --success-border:   #80CBC4;
+    --success-text:     #00695C;
+}
+
+/* ---------- Reset & Base ---------- */
+*, *::before, *::after {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* ---------- Banner ---------- */
+.banner {
+    width: 100%;
+    max-height: 200px;
+    overflow: hidden;
+    background-color: var(--brand-navy);
+}
+
+.banner img {
+    width: 100%;
+    height: 200px;
+    object-fit: cover;
+    display: block;
+    opacity: 1; /* Removed opacity reduction for sharper image */
+}
+
+/* Fallback gradient matches the new Navy banner */
+.banner:empty {
+    height: 200px;
+    background: linear-gradient(135deg, #050f1e 0%, #0A1930 50%, #1C3150 100%);
+}
+
+/* ---------- Logo ---------- */
+.logo-container {
+    margin-top: -45px;
+    margin-bottom: 10px;
+    text-align: center;
+    z-index: 10;
+    position: relative;
+}
+
+.logo-container img {
+    width: 90px;
+    height: 90px;
+    object-fit: contain;
+    background-color: var(--bg-card);
+    border-radius: 16px;
+    padding: 10px;
+    box-shadow: 0 4px 16px rgba(10, 25, 48, 0.15);
+    border: 2px solid var(--border-light);
+}
+
+/* ---------- Card Container ---------- */
+.card {
+    background: var(--bg-card);
+    border-radius: 12px;
+    box-shadow: 0 8px 30px rgba(10, 25, 48, 0.08);
+    border: 1px solid var(--border-light);
+    padding: 40px 36px;
+    width: 100%;
+    max-width: 460px;
+    margin: 20px auto 40px;
+    animation: fadeIn 0.4s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(12px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------- Headings ---------- */
+.card h2 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--brand-navy);
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+/* ---------- Form Elements ---------- */
+.form-group {
+    margin-bottom: 18px;
+}
+
+.form-group label {
+    display: block;
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+}
+
+.form-group input[type="text"],
+.form-group input[type="password"] {
+    width: 100%;
+    padding: 12px 14px;
+    font-size: 0.95rem;
+    border: 1px solid var(--border-input);
+    border-radius: 8px;
+    background-color: var(--bg-input);
+    transition: border-color 0.2s, box-shadow 0.2s;
+    outline: none;
+    color: var(--text-primary);
+}
+
+.form-group input[type="text"]:focus,
+.form-group input[type="password"]:focus {
+    border-color: var(--brand-cyan);
+    box-shadow: 0 0 0 3px var(--brand-cyan-glow);
+    background-color: var(--bg-card);
+}
+
+.form-group input[type="text"]::placeholder,
+.form-group input[type="password"]::placeholder {
+    color: var(--gray-light);
+}
+
+/* ---------- Radio Buttons ---------- */
+.radio-group {
+    margin-bottom: 20px;
+}
+
+.radio-group-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--text-secondary);
+    margin-bottom: 10px;
+    display: block;
+}
+
+.radio-option {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 12px;
+    margin-bottom: 8px;
+    cursor: pointer;
+}
+
+.radio-option input[type="radio"] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border-input);
+    border-radius: 50%;
+    margin-right: 6px;
+    transition: border-color 0.2s;
+    position: relative;
+    cursor: pointer;
+}
+
+.radio-option input[type="radio"]:checked {
+    border-color: var(--brand-cyan);
+}
+
+.radio-option input[type="radio"]:checked::after {
+    content: '';
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background-color: var(--brand-cyan);
+    border-radius: 50%;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+}
+
+.radio-option input[type="radio"]:hover {
+    border-color: var(--brand-cyan-dark);
+}
+
+.radio-option label {
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    cursor: pointer;
+}
+
+/* ---------- Buttons ---------- */
+.btn {
+    display: block;
+    width: 100%;
+    padding: 12px;
+    font-size: 1rem;
+    font-weight: 600;
+    color: #FFFFFF;
+    /* Updated gradient to match Cyan/Teal theme */
+    background: linear-gradient(135deg, var(--brand-cyan), var(--brand-cyan-dark));
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.3s, transform 0.15s, box-shadow 0.3s;
+    text-align: center;
+    text-decoration: none;
+}
+
+.btn:hover {
+    background: linear-gradient(135deg, var(--brand-cyan-dark), #00838F);
+    box-shadow: 0 4px 14px var(--brand-cyan-glow);
+}
+
+.btn:active {
+    transform: scale(0.98);
+}
+
+.btn-secondary {
+    background: linear-gradient(135deg, var(--brand-navy-light), var(--brand-navy));
+    margin-top: 10px;
+}
+
+.btn-secondary:hover {
+    background: linear-gradient(135deg, var(--brand-navy), #050f1e);
+    box-shadow: 0 4px 14px rgba(10, 25, 48, 0.3);
+}
+
+/* ---------- Bypass Code Display ---------- */
+.code-display {
+    background-color: var(--brand-cyan-light);
+    border: 2px solid var(--brand-cyan);
+    border-radius: 10px;
+    padding: 24px;
+    text-align: center;
+    margin: 20px 0;
+}
+
+.code-display .code-value {
+    font-size: 2rem;
+    font-weight: 700;
+    font-family: 'Courier New', Courier, monospace;
+    color: var(--brand-navy);
+    letter-spacing: 4px;
+    margin: 12px 0;
+    user-select: all;
+    padding: 8px;
+    background-color: rgba(255, 255, 255, 0.8);
+    border-radius: 6px;
+}
+
+.code-display .code-meta {
+    font-size: 0.85rem;
+    color: var(--gray-mid);
+    margin-top: 8px;
+}
+
+.code-display .code-meta strong {
+    color: var(--brand-navy);
+}
+
+/* ---------- Info Text ---------- */
+.info-text {
+    font-size: 0.9rem;
+    color: var(--text-muted);
+    text-align: center;
+    margin-bottom: 16px;
+}
+
+.info-text strong {
+    color: var(--text-primary);
+}
+
+/* ---------- Links ---------- */
+.link-group {
+    text-align: center;
+    margin-top: 20px;
+}
+
+.link-group a {
+    display: inline-block;
+    color: var(--brand-cyan-dark);
+    text-decoration: none;
+    font-size: 0.9rem;
+    font-weight: 500;
+    margin: 4px 12px;
+    transition: color 0.2s;
+}
+
+.link-group a:hover {
+    color: var(--brand-navy);
+    text-decoration: underline;
+}
+
+/* ---------- Error Messages ---------- */
+.error-message {
+    background-color: var(--error-bg);
+    border: 1px solid var(--error-border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: var(--error-text);
+    font-size: 0.9rem;
+    text-align: center;
+    margin-bottom: 16px;
+}
+
+/* ---------- Success Messages ---------- */
+.success-message {
+    background-color: var(--success-bg);
+    border: 1px solid var(--success-border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    color: var(--success-text);
+    font-size: 0.9rem;
+    text-align: center;
+    margin-bottom: 16px;
+}
+
+/* ---------- Footer ---------- */
+.footer {
+    text-align: center;
+    padding: 20px;
+    font-size: 0.8rem;
+    color: var(--gray-light);
+    margin-top: auto;
+}
+
+/* ---------- Accent Bar ---------- */
+.card::before {
+    content: '';
+    display: block;
+    width: 60px;
+    height: 4px;
+    /* Gradient matching the new Cyan/Navy theme */
+    background: linear-gradient(90deg, var(--brand-cyan), var(--brand-navy));
+    border-radius: 2px;
+    margin: 0 auto 24px;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 520px) {
+    .card {
+        margin: 16px;
+        padding: 28px 20px;
+    }
+
+    .radio-option {
+        display: flex;
+        margin-bottom: 10px;
+    }
+
+    .code-display .code-value {
+        font-size: 1.5rem;
+        letter-spacing: 2px;
+    }
+
+    .banner img {
+        height: 140px;
+    }
+
+    .logo-container img {
+        width: 70px;
+        height: 70px;
+    }
+}
