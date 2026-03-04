@@ -50,10 +50,18 @@ The Duo Bypass Code Generator provides a secure, self-service portal for users t
 ### Workflow
 
 1. User navigates to the web application over HTTPS.
+
+<img width="1600" height="1112" alt="Login Page" src="https://github.com/user-attachments/assets/cb2edd69-d973-48b3-a0fd-7d2f774cd95b" />
+
 2. User authenticates with their Active Directory credentials.
 3. *(Optional)* User completes Duo MFA verification via the Duo Universal Prompt.
 4. User selects a bypass code duration (15 minutes to 24 hours).
+
+<img width="1596" height="1106" alt="Generate Bypass Code Page" src="https://github.com/user-attachments/assets/e08ca718-d5ed-472f-b509-3721c594d250" />
+
 5. A single-use bypass code is generated via the Duo Admin API and displayed to the user.
+
+<img width="1597" height="1105" alt="Bypass Code Page" src="https://github.com/user-attachments/assets/00d18403-31a2-4f79-8cbb-55c867310837" />
 
 ---
 
@@ -552,4 +560,5 @@ iisreset
 **Static assets not loading (no CSS/images):**
 - Verify the `static/` directory exists in the installation directory with the correct structure.
 - Check that `style.css`, `logo.png`, `banner.jpg`, and `favicon.png` are present.
+
 - (Windows) Ensure `IIS_IUSRS` has read access to the `static/` directory.
