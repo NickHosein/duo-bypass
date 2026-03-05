@@ -1,0 +1,14 @@
+Flask>=3.0,<4.0
+flask-limiter>=3.0,<4.0
+flask-wtf>=1.2,<2.0
+ldap3>=2.9,<3.0
+gssapi>=1.8,<2.0
+requests>=2.31,<3.0
+cryptography>=46.0
+# WSGI Server
+# Linux: use gunicorn (default)
+# Windows: replace gunicorn with waitress (gunicorn does not support Windows)
+gunicorn>=21.2,<23.0
+# waitress>=3.0,<4.0
+duo_universal
+pymemcache
