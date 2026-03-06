@@ -227,13 +227,13 @@ info "Installing system dependencies..."
 case "$PKG_MANAGER" in
     apt)
         apt-get update -qq
-        apt-get install -y -qq krb5-user libkrb5-dev python3 python3-pip python3-venv
+        apt-get install -y -qq krb5-user libkrb5-dev python3 python3-pip python3-venv memcached
         ;;
     yum)
-        yum install -y -q krb5-workstation krb5-devel python3 python3-pip
+        yum install -y -q krb5-workstation krb5-devel python3 python3-pip memcached
         ;;
     dnf)
-        dnf install -y -q krb5-workstation krb5-devel python3 python3-pip
+        dnf install -y -q krb5-workstation krb5-devel python3 python3-pip memcached
         ;;
 esac
 
@@ -368,6 +368,51 @@ fi
 
 chmod 600 "$INSTALL_DIR/.env"
 success ".env file created."
+
+# ════════════════════════════════════════
+# Configure Memcached
+# ════════════════════════════════════════
+info "Configuring Memcached..."
+
+# Ensure Memcached listens only on loopback
+MEMCACHED_CONF=""
+if [[ -f /etc/memcached.conf ]]; then
+    MEMCACHED_CONF="/etc/memcached.conf"
+elif [[ -f /etc/sysconfig/memcached ]]; then
+    MEMCACHED_CONF="/etc/sysconfig/memcached"
+fi
+
+if [[ -n "$MEMCACHED_CONF" ]]; then
+    cp "$MEMCACHED_CONF" "${MEMCACHED_CONF}.bak.$(date +%Y%m%d%H%M%S)"
+    info "Backed up existing Memcached configuration."
+fi
+
+# Debian/Ubuntu style config
+if [[ -f /etc/memcached.conf ]]; then
+    # Ensure listening on localhost only
+    if ! grep -q "^-l 127.0.0.1" /etc/memcached.conf; then
+        sed -i 's/^-l .*/-l 127.0.0.1/' /etc/memcached.conf
+    fi
+    # Set memory limit to 64MB (more than sufficient for rate limiting)
+    if ! grep -q "^-m 64" /etc/memcached.conf; then
+        sed -i 's/^-m .*/-m 64/' /etc/memcached.conf
+    fi
+fi
+
+# RHEL/CentOS style config
+if [[ -f /etc/sysconfig/memcached ]]; then
+    sed -i 's/^OPTIONS=.*/OPTIONS="-l 127.0.0.1"/' /etc/sysconfig/memcached
+    sed -i 's/^CACHESIZE=.*/CACHESIZE="64"/' /etc/sysconfig/memcached
+fi
+
+systemctl enable memcached
+systemctl restart memcached
+
+if systemctl is-active --quiet memcached; then
+    success "Memcached is running and bound to 127.0.0.1:11211."
+else
+    warn "Memcached may not have started. Check: systemctl status memcached"
+fi
 
 # ──────────────────────────────────────
 # Configure Kerberos
@@ -658,6 +703,7 @@ echo "  Install directory:    $INSTALL_DIR"
 echo "  Log directory:        $LOG_DIR"
 echo "  Service user:         $SERVICE_USER"
 echo "  Systemd service:      duo-bypass"
+echo "  Rate limiter backend:  Memcached (127.0.0.1:11211)"
 echo ""
 echo "  Manage the service:"
 echo "    sudo systemctl start duo-bypass"
