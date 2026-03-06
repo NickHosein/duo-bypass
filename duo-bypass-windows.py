@@ -47,7 +47,9 @@ csrf = CSRFProtect(app)
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 app.config['WTF_CSRF_SSL_STRICT'] = False
 app.config['PREFERRED_URL_SCHEME'] = 'https'
-app.config['SESSION_COOKIE_SECURE'] = False     # Flask runs on HTTP loopback; IIS handles TLS
+# SESSION_COOKIE_SECURE should be True in production where a trusted TLS certificate is used.
+# Set environment variable FLASK_COOKIE_SECURE=false for development with self-signed certificates.
+app.config['SESSION_COOKIE_SECURE'] = os.getenv('FLASK_COOKIE_SECURE', 'true').lower() != 'false'
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['WTF_CSRF_TIME_LIMIT'] = None
@@ -85,7 +87,7 @@ else:
 
 # Config for LDAPS
 TLS_CONFIG = Tls(
-    validate=ssl.CERT_NONE,
+    validate=ssl.CERT_REQUIRED,
     ca_certs_file='/path/to/your/ca-chain.pem',
     version=ssl.PROTOCOL_TLSv1_2
 )
@@ -109,6 +111,111 @@ BYPASS_DURATION_OPTIONS = {
     '12h': 43200,
     '24h': 86400,
 }
+
+# ================================================================
+# Per-username login failure tracking and cooldown (F-03)
+# ================================================================
+import threading
+from datetime import datetime
+
+# Configuration
+MAX_FAILED_ATTEMPTS = 5          # Failures before cooldown activates
+BASE_COOLDOWN_SECONDS = 60       # Initial cooldown: 1 minute
+MAX_COOLDOWN_SECONDS = 900       # Maximum cooldown: 15 minutes
+FAILURE_WINDOW_SECONDS = 600     # Reset failure count after 10 minutes of no failures
+
+# Thread-safe storage for tracking login failures
+_login_failures_lock = threading.Lock()
+_login_failures = {}
+# Structure: {
+#     'username': {
+#         'count': int,
+#         'last_failure': datetime,
+#         'locked_until': datetime or None
+#     }
+# }
+
+
+def _get_cooldown_seconds(failure_count):
+    """Calculate exponential backoff cooldown duration."""
+    if failure_count < MAX_FAILED_ATTEMPTS:
+        return 0
+    exponent = failure_count - MAX_FAILED_ATTEMPTS
+    cooldown = BASE_COOLDOWN_SECONDS * (2 ** exponent)
+    return min(cooldown, MAX_COOLDOWN_SECONDS)
+
+
+def check_login_allowed(username):
+    """
+    Check if a login attempt is allowed for the given username.
+    Returns (allowed: bool, retry_after_seconds: int).
+    """
+    with _login_failures_lock:
+        record = _login_failures.get(username)
+        if not record:
+            return True, 0
+
+        now = datetime.utcnow()
+
+        # Reset if no failures within the failure window
+        elapsed = (now - record['last_failure']).total_seconds()
+        if elapsed > FAILURE_WINDOW_SECONDS:
+            del _login_failures[username]
+            return True, 0
+
+        # Check if currently locked out
+        if record['locked_until'] and now < record['locked_until']:
+            remaining = int((record['locked_until'] - now).total_seconds()) + 1
+            return False, remaining
+
+        return True, 0
+
+
+def record_login_failure(username, source_ip):
+    """Record a failed login attempt and apply cooldown if threshold exceeded."""
+    with _login_failures_lock:
+        now = datetime.utcnow()
+        record = _login_failures.get(username)
+
+        if not record:
+            record = {
+                'count': 0,
+                'last_failure': now,
+                'locked_until': None
+            }
+            _login_failures[username] = record
+
+        # Reset if outside failure window
+        elapsed = (now - record['last_failure']).total_seconds()
+        if elapsed > FAILURE_WINDOW_SECONDS:
+            record['count'] = 0
+
+        record['count'] += 1
+        record['last_failure'] = now
+
+        cooldown = _get_cooldown_seconds(record['count'])
+        if cooldown > 0:
+            record['locked_until'] = now + timedelta(seconds=cooldown)
+            logger.warning(
+                f"Account cooldown activated: username='{username}', "
+                f"source_ip='{source_ip}', "
+                f"failed_attempts={record['count']}, "
+                f"cooldown_seconds={cooldown}"
+            )
+        else:
+            record['locked_until'] = None
+            logger.info(
+                f"Authentication failure: username='{username}', "
+                f"source_ip='{source_ip}', "
+                f"failed_attempts={record['count']}"
+            )
+
+
+def record_login_success(username):
+    """Clear failure tracking after successful authentication."""
+    with _login_failures_lock:
+        if username in _login_failures:
+            del _login_failures[username]
 
 # Username for web frontend sanitization
 def sanitize_username(username):
@@ -254,12 +361,23 @@ def format_duration(seconds):
     else:
         return f"{seconds}s"
 
+# Formats cooldown time for user-facing messages.
+def format_cooldown(seconds):
+    if seconds >= 60:
+        minutes = seconds // 60
+        remaining_secs = seconds % 60
+        if remaining_secs:
+            return f"{minutes} minute{'s' if minutes != 1 else ''} and {remaining_secs} second{'s' if remaining_secs != 1 else ''}"
+        return f"{minutes} minute{'s' if minutes != 1 else ''}"
+    return f"{seconds} second{'s' if seconds != 1 else ''}"
+
 # Ensure session is initialized before CSRF validation (required behind IIS proxy)
 @app.before_request
 def ensure_session_loaded():
     session.modified = True
     session.permanent = True
 
+# Rate limiting is primarily enforced by IIS Dynamic IP Restrictions.
 # Rate limiter config
 limiter = Limiter(
     get_remote_address,
@@ -282,33 +400,49 @@ def login():
         if not username:
             error = "Invalid username format."
         else:
-            try:
-                if authenticate_user(username, password):
-                    # AD authentication successful
-                    if duo_client:
-                        # Store username in session for MFA flow
-                        session['pending_mfa_username'] = username
-                        session['mfa_state'] = os.urandom(16).hex()
+            # Check if username is in cooldown period
+            source_ip = request.remote_addr
+            allowed, retry_after = check_login_allowed(username)
 
-                        # Generate the Duo auth URL
-                        try:
-                            duo_auth_url = duo_client.create_auth_url(
-                                username=username,
-                                state=session['mfa_state']
-                            )
-                            return redirect(duo_auth_url)
-                        except DuoException as e:
-                            logger.error(f"Duo MFA auth URL creation failed: {e}")
-                            error = "MFA service unavailable. Please try again later."
+            if not allowed:
+                logger.warning(
+                    f"Login attempt blocked (cooldown): username='{username}', "
+                    f"source_ip='{source_ip}', "
+                    f"retry_after={retry_after}s"
+                )
+                error = f"Too many failed attempts. Please try again in {format_cooldown(retry_after)}."
+            else:
+                try:
+                    if authenticate_user(username, password):
+                        # AD authentication successful
+                        record_login_success(username)
+
+                        if duo_client:
+                            # Store username in session for MFA flow
+                            session['pending_mfa_username'] = username
+                            session['mfa_state'] = os.urandom(16).hex()
+
+                            # Generate the Duo auth URL
+                            try:
+                                duo_auth_url = duo_client.create_auth_url(
+                                    username=username,
+                                    state=session['mfa_state']
+                                )
+                                return redirect(duo_auth_url)
+                            except DuoException as e:
+                                logger.error(f"Duo MFA auth URL creation failed: {e}")
+                                error = "MFA service unavailable. Please try again later."
+                        else:
+                            # No Duo MFA configured, grant access directly
+                            logger.warning(f"Duo MFA not configured. Granting direct access for '{username}'.")
+                            session['username'] = username
+                            return redirect(url_for('bypass_code'))
                     else:
-                        # No Duo MFA configured, grant access directly
-                        logger.warning(f"Duo MFA not configured. Granting direct access for '{username}'.")
-                        session['username'] = username
-                        return redirect(url_for('bypass_code'))
-                else:
-                    error = "Invalid credentials. Please try again."
-            except Exception:
-                error = "Authentication failed. Please try again."
+                        record_login_failure(username, source_ip)
+                        error = "Invalid credentials. Please try again."
+                except Exception:
+                    record_login_failure(username, source_ip)
+                    error = "Authentication failed. Please try again."
 
     return render_template_string('''
 <!DOCTYPE html>
