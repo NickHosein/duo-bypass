@@ -233,7 +233,34 @@ if ($poolExists) {
         $poolState = (Get-Item "IIS:\AppPools\$APP_POOL").State
         if ($poolState -eq "Started") {
             Stop-WebAppPool -Name $APP_POOL -ErrorAction Stop
-            Start-Sleep -Seconds 2
+            
+            # Wait for the worker process to fully exit
+            $maxWait = 15
+            $waited = 0
+            while ($waited -lt $maxWait) {
+                $workers = @(Get-ChildItem "IIS:\AppPools\$APP_POOL\WorkerProcesses" -ErrorAction SilentlyContinue)
+                if ($workers.Count -eq 0) { break }
+                Start-Sleep -Seconds 1
+                $waited++
+            }
+
+            if ($waited -ge $maxWait) {
+                Write-Warn "Worker process did not exit within $($maxWait)s. Attempting to force stop..."
+                try {
+                    $workers = @(Get-ChildItem "IIS:\AppPools\$APP_POOL\WorkerProcesses" -ErrorAction SilentlyContinue)
+                    foreach ($worker in $workers) {
+                        $pid1 = $worker.processId
+                        if ($pid1 -and $pid1 -ne 0) {
+                            Stop-Process -Id $pid1 -Force -ErrorAction SilentlyContinue
+                            Write-Info "Killed worker process PID $pid1."
+                        }
+                    }
+                    Start-Sleep -Seconds 2
+                } catch {
+                    Write-Warn "Could not force stop worker processes: $_"
+                }
+            }
+
             Write-Success "Application Pool stopped."
         } else {
             Write-Info "Application Pool was already stopped."
@@ -395,14 +422,27 @@ if ($installDirExists) {
 
     # Remove the install directory
     Write-Info "Removing installation directory: $($INSTALL_DIR)"
-    try {
-        Remove-Item -Path $INSTALL_DIR -Recurse -Force -ErrorAction Stop
-        Write-Success "Installation directory removed."
-    } catch {
-        Write-Warn "Could not fully remove installation directory: $_"
-        Write-Warn "Some files may be locked. Try again after an IIS reset."
-        Write-Warn "  iisreset"
-        Write-Warn "  Remove-Item -Path '$($INSTALL_DIR)' -Recurse -Force"
+    $removeAttempts = 0
+    $maxRemoveAttempts = 3
+    $removed = $false
+
+    while ($removeAttempts -lt $maxRemoveAttempts -and -not $removed) {
+        try {
+            Remove-Item -Path $INSTALL_DIR -Recurse -Force -ErrorAction Stop
+            $removed = $true
+            Write-Success "Installation directory removed."
+        } catch {
+            $removeAttempts++
+            if ($removeAttempts -lt $maxRemoveAttempts) {
+                Write-Warn "File removal attempt $removeAttempts failed. Retrying in 3 seconds..."
+                Start-Sleep -Seconds 3
+            } else {
+                Write-Warn "Could not fully remove installation directory after $maxRemoveAttempts attempts: $_"
+                Write-Warn "Some files may be locked. Try again after an IIS reset:"
+                Write-Warn "  iisreset"
+                Write-Warn "  Remove-Item -Path '$($INSTALL_DIR)' -Recurse -Force"
+            }
+        }
     }
 }
 
@@ -413,6 +453,7 @@ Write-Host ""
 Write-Info "The installer unlocked the following IIS configuration sections:"
 Write-Host "  system.webServer/handlers"
 Write-Host "  system.webServer/security/requestFiltering"
+Write-Host "  system.webServer/security/dynamicIpSecurity"
 Write-Host "  system.webServer/httpProtocol"
 Write-Host "  system.webServer/rewrite/rules (if URL Rewrite was installed)"
 Write-Host ""
@@ -424,6 +465,7 @@ if (Prompt-YesNo "Re-lock these IIS configuration sections?" "n") {
     $sectionsToLock = @(
         "system.webServer/handlers",
         "system.webServer/security/requestFiltering",
+        "system.webServer/security/dynamicIpSecurity",
         "system.webServer/httpProtocol"
     )
 
