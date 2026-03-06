@@ -137,11 +137,11 @@ if (-not $iisFeature) {
         Write-Warn "IIS (Web-Server) does not appear to be installed."
         if (Prompt-YesNo "Attempt to install IIS and required features now?" "y") {
             try {
-                Install-WindowsFeature -Name Web-Server, Web-Scripting-Tools -IncludeManagementTools -ErrorAction Stop
+                Install-WindowsFeature -Name Web-Server, Web-Scripting-Tools, Web-IP-Security -IncludeManagementTools -ErrorAction Stop
                 Write-Success "IIS installed via Install-WindowsFeature."
             } catch {
                 try {
-                    Enable-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole, IIS-WebServer, IIS-ManagementConsole -All -NoRestart -ErrorAction Stop
+                    Enable-WindowsOptionalFeature -Online -FeatureName IIS-WebServerRole, IIS-WebServer, IIS-ManagementConsole, IIS-IPSecurity -All -NoRestart -ErrorAction Stop
                     Write-Success "IIS installed via Enable-WindowsOptionalFeature."
                 } catch {
                     Write-Err "Failed to install IIS. Please install IIS manually and re-run this script."
@@ -157,7 +157,7 @@ if (-not $iisFeature) {
     } else {
         Write-Warn "IIS feature found but not installed."
         if (Prompt-YesNo "Install IIS now?" "y") {
-            Install-WindowsFeature -Name Web-Server, Web-Scripting-Tools -IncludeManagementTools
+            Install-WindowsFeature -Name Web-Server, Web-Scripting-Tools, Web-IP-Security -IncludeManagementTools
             Write-Success "IIS installed."
         } else {
             Write-Err "IIS is required. Please install it and re-run."
@@ -216,6 +216,53 @@ if (-not $urlRewriteInstalled) {
     Write-Warn "IIS URL Rewrite module not detected."
     Write-Warn "HTTP-to-HTTPS redirect will not work without it."
     Write-Warn "Download from: https://www.iis.net/downloads/microsoft/url-rewrite"
+}
+
+# Check for Dynamic IP Restrictions feature
+Write-Info "Checking for IIS Dynamic IP Restrictions..."
+
+$ipSecInstalled = $false
+
+try {
+    # Server OS (Windows Server)
+    $ipSecFeature = Get-WindowsFeature -Name Web-IP-Security -ErrorAction SilentlyContinue
+    if ($ipSecFeature -and $ipSecFeature.Installed) {
+        $ipSecInstalled = $true
+    }
+} catch { }
+
+if (-not $ipSecInstalled) {
+    try {
+        # Client OS (Windows 10/11) or fallback
+        $ipSecOptional = Get-WindowsOptionalFeature -Online -FeatureName IIS-IPSecurity -ErrorAction SilentlyContinue
+        if ($ipSecOptional -and $ipSecOptional.State -eq "Enabled") {
+            $ipSecInstalled = $true
+        }
+    } catch { }
+}
+
+if ($ipSecInstalled) {
+    Write-Success "IIS Dynamic IP Restrictions feature is installed."
+} else {
+    Write-Warn "IIS Dynamic IP Restrictions feature is not installed."
+    if (Prompt-YesNo "Install it now? (required for rate limiting)" "y") {
+        try {
+            Install-WindowsFeature -Name Web-IP-Security -ErrorAction Stop
+            $ipSecInstalled = $true
+            Write-Success "Dynamic IP Restrictions installed."
+        } catch {
+            try {
+                Enable-WindowsOptionalFeature -Online -FeatureName IIS-IPSecurity -All -NoRestart -ErrorAction Stop
+                $ipSecInstalled = $true
+                Write-Success "Dynamic IP Restrictions installed."
+            } catch {
+                Write-Warn "Could not install Dynamic IP Restrictions automatically."
+                Write-Warn "Install manually: Server Manager > Web Server > Security > IP and Domain Restrictions"
+            }
+        }
+    } else {
+        Write-Warn "Rate limiting will not be enforced without Dynamic IP Restrictions."
+    }
 }
 
 # Check system clock accuracy
@@ -331,6 +378,19 @@ if (Prompt-YesNo "Does this server require an HTTP proxy for outbound access?" "
 }
 
 Write-Host ""
+Write-Info "-- IIS Rate Limiting --"
+Write-Info "IIS Dynamic IP Restrictions will be configured to rate-limit clients."
+Write-Host ""
+
+$IIS_BEHIND_LB = $false
+if (Prompt-YesNo "Is this IIS server behind a load balancer or reverse proxy?" "n") {
+    $IIS_BEHIND_LB = $true
+    Write-Info "IIS will evaluate X-Forwarded-For headers for client IP identification."
+} else {
+    Write-Info "IIS will use the direct client IP for rate limiting."
+}
+
+Write-Host ""
 Write-Info "-- TLS Certificate --"
 Write-Info "The TLS certificate must be imported into the Windows Certificate Store"
 Write-Info "(Local Machine > Personal) for IIS to use it."
@@ -432,6 +492,12 @@ if ($PROXY_URL) {
 } else {
     Write-Host "  Proxy:                  None (direct internet access)"
 }
+Write-Host "  Rate limiting:          IIS Dynamic IP Restrictions (30 req/min per IP)"
+if ($IIS_BEHIND_LB) {
+    Write-Host "  Proxy mode:             Enabled (X-Forwarded-For)"
+} else {
+    Write-Host "  Proxy mode:             Disabled (direct client IP)"
+}
 Write-Host ""
 Write-Host "  LDAP Server:            ldaps://$($LDAP_SERVER)"
 Write-Host "  AD Domain:              $($KERBEROS_REALM)"
@@ -496,6 +562,10 @@ $staticSrc = Join-Path $scriptDir "static"
 $staticDst = Join-Path $INSTALL_DIR "static"
 
 if (Test-Path $staticSrc) {
+    # Remove existing static directory to prevent nested static\static\ structure
+    if (Test-Path $staticDst) {
+        Remove-Item -Path $staticDst -Recurse -Force
+    }
     Copy-Item -Path $staticSrc -Destination $staticDst -Recurse -Force
     Write-Success "Static assets copied."
 } else {
@@ -588,6 +658,20 @@ if ($PROXY_URL) {
         "HTTPS_PROXY=$PROXY_URL"
         "NO_PROXY=$NO_PROXY"
     )
+}
+
+Write-Host ""
+Write-Info "-- Session Security --"
+Write-Info "SESSION_COOKIE_SECURE should be enabled in production with a trusted TLS certificate."
+Write-Info "If you are using a self-signed certificate for testing, disable it temporarily."
+Write-Host ""
+
+if (Prompt-YesNo "Is this a production deployment with a trusted TLS certificate?" "y") {
+    # No additional env var needed — defaults to true
+    Write-Info "SESSION_COOKIE_SECURE will be enabled (default)."
+} else {
+    $envLines += "FLASK_COOKIE_SECURE=false"
+    Write-Warn "SESSION_COOKIE_SECURE disabled for testing. Re-enable for production."
 }
 
 $envPath = Join-Path $INSTALL_DIR ".env"
@@ -699,6 +783,12 @@ if ($PROXY_URL) {
     )
 }
 
+$enableProxyMode = if ($IIS_BEHIND_LB) { "true" } else { "false" }
+
+# Session cookie security (disabled for self-signed certificate testing)
+$cookieSecureValue = if ($envLines -match "FLASK_COOKIE_SECURE=false") { "false" } else { "true" }
+$envVarLines += '          <environmentVariable name="FLASK_COOKIE_SECURE" value="' + $cookieSecureValue + '" />'
+
 $envVarBlock = $envVarLines -join "`r`n"
 
 $webConfig = @"
@@ -756,7 +846,7 @@ $envVarBlock
       </rules>
     </rewrite>
 
-    <!-- Request Filtering -->
+    <!-- Security: Request Filtering and Rate Limiting -->
     <security>
       <requestFiltering>
         <requestLimits maxAllowedContentLength="1048576" />
@@ -766,6 +856,22 @@ $envVarBlock
           <add verb="HEAD" allowed="true" />
         </verbs>
       </requestFiltering>
+
+      <!--
+        Dynamic IP Restrictions: Rate limiting at the IIS layer.
+        - denyByRequestRate: Max 5 requests per 60 seconds per client IP.
+          Covers login brute-force attempts.
+        - denyByConcurrentRequests: Max 10 simultaneous connections per IP.
+          Prevents connection flooding.
+        - abortConnection: Drops the TCP connection immediately rather than
+          returning a 403, giving the attacker less information.
+        - enableProxyMode: If behind a load balancer, set to true so IIS
+          evaluates X-Forwarded-For instead of the direct peer IP.
+      -->
+      <dynamicIpSecurity denyAction="AbortRequest" enableProxyMode="$enableProxyMode">
+        <denyByRequestRate enabled="true" maxRequests="30" requestIntervalInMilliseconds="60000" />
+        <denyByConcurrentRequests enabled="true" maxConcurrentRequests="15" />
+      </dynamicIpSecurity>
     </security>
 
   </system.webServer>
@@ -950,6 +1056,7 @@ Write-Info "Unlocking required IIS configuration sections..."
 $sectionsToUnlock = @(
     "system.webServer/handlers",
     "system.webServer/security/requestFiltering",
+    "system.webServer/security/dynamicIpSecurity",
     "system.webServer/httpProtocol"
 )
 
@@ -1245,6 +1352,13 @@ Write-Host "    Client --HTTPS--> IIS (port $($LISTEN_PORT)) --HTTP--> Flask (12
 Write-Host "                       | TLS termination           | HttpPlatformHandler"
 Write-Host "                       | Security headers           | Process management"
 Write-Host "                       | Request filtering          | Auto-restart"
+Write-Host ""
+Write-Host "  Rate limiting:          IIS Dynamic IP Restrictions (30 req/min per IP)"
+if (-not $ipSecInstalled) {
+    Write-Warn "  Action Required: Install IIS IP and Domain Restrictions feature for rate limiting."
+    Write-Warn "  Install-WindowsFeature -Name Web-IP-Security"
+    Write-Host ""
+}
 Write-Host ""
 Write-Host "  Install directory:      $($INSTALL_DIR)"
 Write-Host "  Log directory:          $($LOG_DIR)"
